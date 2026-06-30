@@ -1,0 +1,24 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+MODE = os.getenv("MODE", "TESTNET")
+AUTO_TRADE = os.getenv("AUTO_TRADE", "false").lower() == "true"
+
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
+BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+INTERVAL = "15m"
+KLINE_LIMIT = 250
+
+PERFORMANCE_REPORT_SECONDS = 21600  # 6 saat
+POSITION_CHECK_SECONDS = 30
+FULL_SCAN_SECONDS = 900  # 15 dakika
+MIN_FINAL_SCORE = 30
+MAX_OPEN_POSITIONS = 4
+COOLDOWN_MINUTES = 60
+POSITION_USDT_AMOUNT = 20
