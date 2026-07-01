@@ -1,7 +1,7 @@
 class RecoveryEngine:
     def analyze(self, regime, approved_coins):
         fear_value = regime["fear_greed"]["value"]
-        btc_15m = regime["btc_15m"]
+        btc_15m = regime.get("btc_15m") or regime.get("btc")
 
         if fear_value > 25:
             return {
