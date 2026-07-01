@@ -64,8 +64,7 @@ class BotEngine:
         print("=" * 40)
         self.logger.info("BotEngine çalıştı.")
 
-        self.notifier.send("🤖 Bot çalıştı. Pozisyonlar kontrol ediliyor...")
-
+        print("Bot çalıştı. Pozisyonlar kontrol ediliyor...")
         open_positions = self.position_engine.run()
         self._maybe_send_performance_report()
 
