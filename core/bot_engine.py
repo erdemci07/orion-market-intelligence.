@@ -210,10 +210,11 @@ Sebep: BUY için erken, izlemeye alındı.
         balance = self.order_engine.exchange.get_usdt_balance()
 
         usdt_amount = self.position_sizing_engine.calculate_usdt_amount(
-            balance=balance,
-            confidence=confidence,
-            risk_score=risk_score
-        )
+    balance=balance,
+    confidence=confidence,
+    risk_score=risk_score,
+    regime_name=regime["regime"]
+)
 
         if usdt_amount <= 0:
             self.notifier.send(

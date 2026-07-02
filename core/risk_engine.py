@@ -1,15 +1,23 @@
 ﻿class RiskEngine:
     def calculate_risk_score(self, regime):
-        if regime["regime"] == "BULLISH":
+        name = regime["regime"]
+
+        if name == "AGGRESSIVE":
+            return 95
+
+        if name == "BULLISH":
             return 85
 
-        if regime["regime"] == "NEUTRAL":
-            return 65
+        if name == "NORMAL":
+            return 70
 
-        if regime["regime"] == "RISKY":
+        if name == "CAREFUL":
+            return 55
+
+        if name == "DEFENSIVE":
             return 40
 
-        if regime["regime"] == "PANIC":
-            return 20
+        if name == "SURVIVAL":
+            return 25
 
         return 50

@@ -145,33 +145,26 @@ class MarketIntelligenceEngine:
         return round(max(0, min(score, 100)), 2)
 
     def _regime_from_score(self, score):
-        if score >= 75:
+        if score >= 85:
             return {
-                "name": "BULLISH",
+                "name": "AGGRESSIVE",
                 "min_score": 60,
                 "allow_new_positions": True,
-                "reasons": ["Market skoru güçlü"]
+                "reasons": ["Market çok güçlü"]
             }
 
-        if score >= 50:
+        if score >= 70:
             return {
-                "name": "NEUTRAL",
-                "min_score": 75,
+                "name": "BULLISH",
+                "min_score": 65,
                 "allow_new_positions": True,
-                "reasons": ["Market orta bölgede"]
+                "reasons": ["Market güçlü"]
             }
 
-        if score >= 30:
+        if score >= 55:
             return {
-                "name": "RISKY",
-                "min_score": 88,
+                "name": "NORMAL",
+                "min_score": 72,
                 "allow_new_positions": True,
-                "reasons": ["Market zayıf ama tamamen panik değil"]
+                "reasons": ["Market normal"]
             }
-
-        return {
-            "name": "PANIC",
-            "min_score": 95,
-            "allow_new_positions": False,
-            "reasons": ["Market skoru çok zayıf"]
-        }
