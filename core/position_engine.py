@@ -1,4 +1,21 @@
-﻿from database.repository import get_open_positions, update_position, close_position
+﻿from config import (
+    STOP_LOSS_PERCENT,
+    HARD_STOP_LOSS_PERCENT,
+    BREAK_EVEN_PROFIT_PERCENT,
+    TRAILING_START_PROFIT_PERCENT,
+    TRAILING_ATR_MULTIPLIER,
+    WEAK_SCORE_EXIT,
+    DANGER_SCORE_EXIT,
+    PROFIT_PROTECT_SCORE,
+)
+
+from database.repository import (
+    get_open_positions,
+    update_position,
+    close_position,
+    partial_close_position,
+)
+
 from services.exchange_client import ExchangeClient
 from services.telegram_notifier import TelegramNotifier
 from strategy.indicators import build_indicator_snapshot
@@ -41,9 +58,9 @@ class PositionEngine:
 
         entry_price = position["entry_price"]
         quantity = position["quantity"]
-        highest_price = position["highest_price"]
-        stop_price = position["stop_price"]
-        target_price = position["target_price"]
+        highest_price = position["highest_price"] or entry_price
+        old_stop = position["stop_price"] or self.initial_stop(entry_price)
+        old_target = position["target_price"] or entry_price * 1.10
 
         if current_price > highest_price:
             highest_price = current_price
@@ -55,32 +72,33 @@ class PositionEngine:
             entry_price=entry_price,
             current_price=current_price,
             highest_price=highest_price,
-            old_stop=stop_price,
+            old_stop=old_stop,
             atr=snapshot["atr"],
             profit_percent=profit_percent,
-            position_score=position_score
+            position_score=position_score,
         )
 
         new_target = self.calculate_dynamic_target(
             current_price=current_price,
-            old_target=target_price,
+            old_target=old_target,
             profit_percent=profit_percent,
-            position_score=position_score
+            position_score=position_score,
         )
 
         update_position(symbol, {
             "highest_price": highest_price,
             "stop_price": new_stop,
-            "target_price": new_target
+            "target_price": new_target,
         })
 
         action, reason = self.decide_exit(
             current_price=current_price,
+            entry_price=entry_price,
             stop_price=new_stop,
             target_price=new_target,
             profit_percent=profit_percent,
             position_score=position_score,
-            snapshot=snapshot
+            snapshot=snapshot,
         )
 
         print(
@@ -90,7 +108,7 @@ class PositionEngine:
             "skor:", position_score,
             "stop:", round(new_stop, 6),
             "hedef:", round(new_target, 6),
-            "karar:", action
+            "karar:", action,
         )
 
         if action == "SELL_ALL":
@@ -113,15 +131,37 @@ Sebep: {reason}
 """
                 )
 
+        elif action == "SELL_HALF":
+            sold = partial_close_position(
+                symbol=symbol,
+                exit_price=current_price,
+                close_ratio=0.50,
+            )
+
+            if sold:
+                self.notifier.send(
+                    f"""
+🟠 <b>Kısmi Satış Yapıldı</b>
+
+Coin: <b>{symbol}</b>
+Giriş: {round(entry_price, 6)}
+Çıkış: {round(current_price, 6)}
+Satılan: %{50}
+
+Kâr/Zarar: %{round(profit_percent, 2)}
+Pozisyon Skoru: {position_score}/100
+
+Sebep: {reason}
+"""
+                )
+
         elif action == "WARN":
             self.notifier.send(
                 f"""
 ⚠️ <b>Pozisyon Uyarısı</b>
 
 Coin: <b>{symbol}</b>
-Giriş: {round(entry_price, 6)}
 Güncel: {round(current_price, 6)}
-
 Kâr/Zarar: %{round(profit_percent, 2)}
 Pozisyon Skoru: {position_score}/100
 
@@ -129,24 +169,27 @@ Sebep: {reason}
 """
             )
 
-    def calculate_position_score(self, snapshot, score_result):
-        score = 0
+    def initial_stop(self, entry_price):
+        return entry_price * (1 - STOP_LOSS_PERCENT / 100)
 
+    def calculate_position_score(self, snapshot, score_result):
         scores = score_result["scores"]
 
-        score += scores["structure"] * 0.25
-        score += scores["ema"] * 0.20
-        score += scores["adx"] * 0.15
-        score += scores["volume"] * 0.15
-        score += scores["rsi"] * 0.10
-        score += scores["macd"] * 0.10
-        score += scores["fibonacci"] * 0.05
+        score = (
+            scores["structure"] * 0.25 +
+            scores["ema"] * 0.20 +
+            scores["adx"] * 0.15 +
+            scores["volume"] * 0.15 +
+            scores["rsi"] * 0.10 +
+            scores["macd"] * 0.10 +
+            scores["fibonacci"] * 0.05
+        )
 
         if snapshot["sudden_drop"]:
-            score -= 25
+            score -= 20
 
         if snapshot["abnormal_volume"]:
-            score -= 15
+            score -= 10
 
         return round(max(0, min(score, 100)), 2)
 
@@ -158,27 +201,26 @@ Sebep: {reason}
         old_stop,
         atr,
         profit_percent,
-        position_score
+        position_score,
     ):
-        new_stop = old_stop
+        hard_stop = entry_price * (1 - HARD_STOP_LOSS_PERCENT / 100)
+        initial_stop = entry_price * (1 - STOP_LOSS_PERCENT / 100)
 
-        # İlk kâr oluşunca zararı sıfıra yaklaştır
-        if profit_percent >= 3:
+        new_stop = max(old_stop, hard_stop, initial_stop)
+
+        if profit_percent >= BREAK_EVEN_PROFIT_PERCENT:
             new_stop = max(new_stop, entry_price)
 
-        # Kâr büyürse trailing stop başlat
-        if profit_percent >= 6:
-            atr_stop = highest_price - (atr * 2)
+        if profit_percent >= TRAILING_START_PROFIT_PERCENT:
+            atr_stop = highest_price - (atr * TRAILING_ATR_MULTIPLIER)
             new_stop = max(new_stop, atr_stop)
 
-        # Pozisyon zayıflıyorsa stopu daha agresif yukarı çek
-        if profit_percent > 2 and position_score < 50:
-            defensive_stop = current_price * 0.985
+        if profit_percent > 1 and position_score < PROFIT_PROTECT_SCORE:
+            defensive_stop = current_price * 0.99
             new_stop = max(new_stop, defensive_stop)
 
-        # Pozisyon çok güçlüyse biraz daha nefes bırak
-        if position_score >= 80 and profit_percent >= 6:
-            relaxed_stop = highest_price - (atr * 2.5)
+        if profit_percent >= 5 and position_score >= 75:
+            relaxed_stop = highest_price - (atr * 2.2)
             new_stop = max(old_stop, relaxed_stop)
 
         return round(new_stop, 8)
@@ -188,48 +230,52 @@ Sebep: {reason}
         current_price,
         old_target,
         profit_percent,
-        position_score
+        position_score,
     ):
         new_target = old_target
 
-        # Pozisyon çok güçlüyse hedefi yukarı taşı
-        if profit_percent >= 6 and position_score >= 80:
-            new_target = max(new_target, current_price * 1.08)
+        if profit_percent >= 4 and position_score >= 75:
+            new_target = max(new_target, current_price * 1.06)
 
-        # Kâr var ama skor zayıflıyorsa hedefi aşağı yaklaştır
-        if profit_percent >= 4 and position_score < 55:
-            new_target = min(new_target, current_price * 1.03)
+        if profit_percent >= 3 and position_score < 50:
+            new_target = min(new_target, current_price * 1.02)
 
         return round(new_target, 8)
 
     def decide_exit(
         self,
         current_price,
+        entry_price,
         stop_price,
         target_price,
         profit_percent,
         position_score,
-        snapshot
+        snapshot,
     ):
+        hard_loss = -HARD_STOP_LOSS_PERCENT
+
+        if profit_percent <= hard_loss:
+            return "SELL_ALL", "Hard stop-loss tetiklendi"
+
         if current_price <= stop_price:
             return "SELL_ALL", "Stop / trailing stop tetiklendi"
 
         if snapshot["sudden_drop"] and snapshot["abnormal_volume"]:
             return "SELL_ALL", "Ani düşüş ve anormal hacim"
 
-        if profit_percent <= -5:
-            return "SELL_ALL", "Maksimum zarar sınırı aşıldı"
+        if position_score <= DANGER_SCORE_EXIT:
+            return "SELL_ALL", "Pozisyon skoru kritik seviyeye düştü"
 
-        if position_score <= 25:
-            return "SELL_ALL", "Pozisyon skoru çok zayıfladı"
+        if profit_percent >= 2 and position_score <= WEAK_SCORE_EXIT:
+            return "SELL_ALL", "Kârdayken grafik ciddi zayıfladı"
 
-        if profit_percent >= 5 and position_score < 45:
-            return "SELL_ALL", "Kâr varken grafik zayıfladı"
+        if profit_percent >= 4 and position_score < 50:
+            return "SELL_HALF", "Kâr var ama momentum zayıflıyor"
 
         if current_price >= target_price and position_score < 70:
             return "SELL_ALL", "Hedef geldi ve güç azaldı"
 
         if current_price >= target_price and position_score >= 70:
-            return "WARN", "Hedef bölgesine geldi ama trend güçlü, izleniyor"
+            return "WARN", "Hedef bölgesi geldi ama trend güçlü"
 
         return "HOLD", "Pozisyon korunuyor"

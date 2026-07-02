@@ -162,6 +162,78 @@ def remove_from_watchlist(symbol):
     connection.commit()
     connection.close()
 
+def partial_close_position(symbol, exit_price, close_ratio):
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT *
+        FROM positions
+        WHERE symbol = ? AND status = 'OPEN'
+        """,
+        (symbol,)
+    )
+
+    position = cursor.fetchone()
+
+    if not position:
+        connection.close()
+        return False
+
+    position = dict(position)
+
+    quantity = position["quantity"]
+    close_quantity = quantity * close_ratio
+    remaining_quantity = quantity - close_quantity
+
+    entry_price = position["entry_price"]
+    profit = (exit_price - entry_price) * close_quantity
+
+    if remaining_quantity <= 0:
+        cursor.execute(
+            """
+            UPDATE positions
+            SET status = 'CLOSED',
+                closed_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (position["id"],)
+        )
+    else:
+        cursor.execute(
+            """
+            UPDATE positions
+            SET quantity = ?
+            WHERE id = ?
+            """,
+            (remaining_quantity, position["id"])
+        )
+
+    cursor.execute(
+        """
+        INSERT INTO trades (
+            symbol,
+            side,
+            price,
+            quantity,
+            profit
+        )
+        VALUES (?, 'SELL', ?, ?, ?)
+        """,
+        (symbol, exit_price, close_quantity, profit)
+    )
+
+    connection.commit()
+    connection.close()
+
+    add_log(
+        "INFO",
+        f"{symbol} kısmi satış. Çıkış: {exit_price}, Miktar: {close_quantity}, Kâr: {profit}"
+    )
+
+    return True
+
 def remove_from_watchlist(symbol):
     connection = get_connection()
     cursor = connection.cursor()

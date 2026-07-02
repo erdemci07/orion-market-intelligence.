@@ -93,6 +93,30 @@ def fibonacci(df, lookback=60):
         "fib_618": high - diff * 0.618,
     }
 
+def detect_sudden_drop(df, threshold=-2.0):
+    if len(df) < 2:
+        return False
+
+    previous_close = df["close"].iloc[-2]
+    current_close = df["close"].iloc[-1]
+
+    change = ((current_close - previous_close) / previous_close) * 100
+
+    return change <= threshold
+
+
+def detect_abnormal_volume(df, multiplier=2.5):
+    if len(df) < 21:
+        return False
+
+    current_volume = df["volume"].iloc[-1]
+    avg_volume = df["volume"].tail(20).mean()
+
+    if avg_volume <= 0:
+        return False
+
+    return current_volume >= avg_volume * multiplier
+
 
 def market_structure(df, lookback=30):
     recent = df.tail(lookback)
@@ -108,6 +132,7 @@ def market_structure(df, lookback=30):
 
 
 def build_indicator_snapshot(df):
+    
     df = df.copy()
 
     df["ema21"] = ema(df, 21)
